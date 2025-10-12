@@ -1,0 +1,4 @@
+CompileFlags:
+  Add: ["-std=gnu23", "-xc", "-Wall", "-Wextra"]
+  Compiler: "gcc"
+  Arguments: "-xc"

@@ -1,0 +1,18 @@
+Nobber - Primative Build system built ontop of nob.h.
+
+The listing of the files to be compiled is locaded in nob.c; 
+look for the array "const char * src_files[] {...}" and add the corret files there.
+
+If you need to change the build flages change them in "const char default_build_flags[] {...}", and
+same goes for linking flags in "const char * default_linking_flags[] {...}"
+
+
+When needing to compile, you run
+$ cc -o nob nob.c
+$ ./nob
+
+This will make build the files listed in  the "src_files" array, and link them.
+
+TODO:
+    [ ] - put the resulting object files in a build directory.
+    [ ] - Chaching of object files, so they don't get re-built unnessesarely.

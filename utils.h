@@ -213,10 +213,11 @@ char * get_path_of_current_executalbe () {
     char buf[PATH_MAX];
 #if  defined(__DragonFly__) || defined(__NetBSD__) || defined(__linux__)
     #if defined(__linux__)
-    #define PROC_EXE_PATH "/proc/self/exe"
+      #define PROC_EXE_PATH "/proc/self/exe"
     #elif defined(__NetBSD__)
-    #define PROC_EXE_PATH "/proc/curproc/exe"
+      #define PROC_EXE_PATH "/proc/curproc/exe"
     #elif defined(__DragonFly__)
+      #define PROC_EXE_PATH "/proc/curproc/file"
     #endif
     if (readlink (PROC_EXE_PATH, buf, PATH_MAX) < 0) {
         fprintf (stderr, "[ERROR] Could not readlink /proc/self/exe: %s", strerror (errno));

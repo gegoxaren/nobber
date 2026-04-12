@@ -5,6 +5,11 @@
 #include <stdint.h>
 #define NOB_IMPLEMENTATION
 #include "../nob.h"
+#undef NOB_IMPLEMENTATION
+
+#define NOBBER_UTILS_IMPLEMENTAITON 
+#include "../utils.h"
+#undef NOBBER_UTILS_IMPLEMENTAITON
 
 
 typedef struct {
@@ -38,6 +43,7 @@ int main ([[maybe_unused]] int argc,[[maybe_unused]] char * argv[]) {
 //        fprintf (stdout, "something: %i, somethig_else: %s\n", (*it)->something, (*it)->something_else);
 //    }
 
+#if 0 
 
     DaInt * int_list = malloc (sizeof (DaInt));
     for (int32_t i = 0; i <= 1000; i++) {
@@ -48,6 +54,9 @@ int main ([[maybe_unused]] int argc,[[maybe_unused]] char * argv[]) {
         auto i = *it;
         fprintf (stdout,"%"PRIi32"\n", i);
     }
+#endif
+    fprintf (stdout, "exec path: %s", get_path_of_current_executable ());
+    return 0;
 }
 
 

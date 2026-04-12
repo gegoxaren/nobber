@@ -14,9 +14,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include <alloca.h>
 #include <errno.h>
-#include <linux/limits.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -32,6 +31,9 @@
 #endif
 #ifdef __darwin__
     #include <mach-o/dyld.h>
+#endif
+#if defined(WINVER) || defined(__WINDOWS__) || defined(_WIN32) || defined(__MSYS__) || defined(__MINGW__) || defined(_MSC_VER)
+    #include <windows.h>
 #endif
 
 #include "nob.h"
@@ -61,15 +63,12 @@ void link_files (IN DaStrings * object_files, IN char * exec_name, IN char * lin
 void clean_files (IN char * source_files[], size_t len, char * exec_name, INOUT Nob_Cmd * cmd);
 char * construct_string (IN char * str, ...);
 NobberError run_excutable (INOUT Nob_Cmd * cmd, IN char * executable);
-char * get_path_of_current_executalbe ();
+char * get_path_of_current_executable ();
 char ** split_string (IN char * str, char delimeter, OUT size_t * out_size);
 
 
-//#define free0(ptr) \
-//    free (ptr); \
-//    ptr = NULL;
 #define free0(ptr) \
-    memset ((void *)ptr, 0, sizeof ((void *) ptr)); \
+    memset ((void *)ptr, 0, sizeof (ptr)); \
     free (ptr);
 
 struct da_strings_t {
@@ -93,7 +92,7 @@ struct da_strings_t {
 
 #ifdef NOBBER_UTILS_IMPLEMENTAITON
 
-/* ----------------- */
+/* ---------------- */
 
 void * malloc0 (size_t size) {
     void * out_val = malloc (size);
@@ -200,16 +199,8 @@ char * construct_string (IN char * str, ...) {
     return retval;
 }
 
-NobberError run_excutable (INOUT Nob_Cmd * cmd, IN char * executable) {
-    // We assume we are only running from the current directory.
-    char * cwd;
-    NobberError ret_val = NOBBER_RETURN_NORMAL;
-    strcat (cwd, "/");
-    strcat (cwd, executable);
-    return ret_val;
-}
 
-char * get_path_of_current_executalbe () {
+char * get_path_of_current_executable () {
     char buf[PATH_MAX];
 #if  defined(__DragonFly__) || defined(__NetBSD__) || defined(__linux__)
     #if defined(__linux__)
@@ -234,13 +225,13 @@ char * get_path_of_current_executalbe () {
     if (_NSGetExecutablePath(buf, PATH_MAX) < 0) {
         fprintf (stderr, "[ERROR] Could not get executable path.");
     }
-#elif defined(WIN32)
+#elif defined(WINVER) || defined(__WINDOWS__) || defined(_WIN32) || defined(__MSYS__) || defined(__MINGW__) || defined(_MSC_VER)
     if (!GetModuleFileNameA (NULL, buf, MAX_PATH)) {
-        fprintf (stderr, "[ERROR] Could not readlink /proc/self/exe: %s", strerror (errno));
+        fprintf (stderr, "[ERROR] Could not get executable path: %s", strerror (errno));
         return NULL;
     }
 #else
-    static_assert (false, "get_path_of_current_executalbe () is not implemented for this platform.");
+    static_assert (false, "get_path_of_current_executable () is not implemented for this platform.");
 #endif
     char * ret = malloc (strlen (buf));
     strcpy(ret, buf);
@@ -264,7 +255,7 @@ char ** split_string (IN char * str, char deliminator, OUT size_t * out_size) {
         no_of_tokens++;
     }
     no_of_tokens++; // add empty space.
-    
+
     char ** result = malloc0 (sizeof (char *) * no_of_tokens);
     if (result) {
         size_t idx = 0;

@@ -1,8 +1,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <alloca.h>
-#include <linux/limits.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <stddef.h>
 #include <stdio.h>

@@ -19,7 +19,7 @@
 #include "nob.h"
 
 
-#define EXEC_NAME "nobber"
+#define EXEC_NAME "main"
 
 const char * default_build_flags[] = {
     "-std=gnu23",
@@ -49,7 +49,7 @@ int main (int argc, char ** argv) {
     Nob_Procs procs = {0};
     Nob_Cmd cmd = {0};
 
-    NOB_GO_REBUILD_URSELF (argc, argv);
+    NOB_GO_REBUILD_URSELF_PLUS (argc, argv, "utils.h");
 
     [[maybe_unused]]  const char * program_name = nob_shift_args(&argc, &argv);
     const char * command_name = "build";
@@ -66,10 +66,10 @@ int main (int argc, char ** argv) {
     } else if (strcmp (command_name, "clean") == 0) {
         clean_files ((char**)src_files, src_file_count, EXEC_NAME, &cmd);
     } else if (strcmp(command_name, "run") == 0) {
-        nob_cmd_append (&cmd, "exec", );
+        nob_cmd_append (&cmd, "exec", EXEC_NAME );
         nob_cmd_run (&cmd);
     } else {
-        nob_log (NOB_INFO, "[ERROR] Unknown command %s\n", command_name);
+        nob_log (NOB_ERROR, " Unknown command %s\n", command_name);
         return NOBBER_RETURN_UNKNOWN_COMMAND;
     }
     if (cmd.capacity) nob_cmd_free (cmd);

@@ -14,9 +14,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include <alloca.h>
 #include <errno.h>
-#include <linux/limits.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -33,12 +32,25 @@
 #ifdef __darwin__
     #include <mach-o/dyld.h>
 #endif
+#if defined(WINVER) || defined(__WINDOWS__) || defined(_WIN32) || defined(__MSYS__) || defined(__MINGW__) || defined(_MSC_VER)
+    #include <windows.h>
+    #include <direct.h>
+#endif
 
 #include "nob.h"
 
 #define IN /*Does nothing, just a mark.*/
 #define OUT /*Does nothing, just a mark.*/
 #define INOUT /*Does nothing, just a mark.*/
+
+#if defined(WIN32) || defined(_WIN32) || defined(__MSYS__) || defined(_MINGW__)
+#define PATH_SEPARATOR_CHAR '\\' 
+#define PATH_SEPARATOR "\\" 
+#else 
+#define PATH_SEPARATOR_CHAR '/' 
+#define PATH_SEPARATOR "/" 
+#endif 
+
 
 typedef struct da_strings_t DaStrings;
 
@@ -61,15 +73,16 @@ void link_files (IN DaStrings * object_files, IN char * exec_name, IN char * lin
 void clean_files (IN char * source_files[], size_t len, char * exec_name, INOUT Nob_Cmd * cmd);
 char * construct_string (IN char * str, ...);
 NobberError run_excutable (INOUT Nob_Cmd * cmd, IN char * executable);
-char * get_path_of_current_executalbe ();
-char ** split_string (IN char * str, char delimeter, OUT size_t * out_size);
+char * get_path_of_current_executable ();
+char ** split_string (IN char * str, IN char * delimeter, OUT size_t * out_len);
+char * nobber_strndup (IN const char * str, size_t len);
 
+#if defined(_WIN32) || defined(__MINGW__) || defined(__MSYS2__)
+#define strndup nobber_strndup
+#endif 
 
-//#define free0(ptr) \
-//    free (ptr); \
-//    ptr = NULL;
 #define free0(ptr) \
-    memset ((void *)ptr, 0, sizeof ((void *) ptr)); \
+    memset ((void *)ptr, 0, sizeof (ptr)); \
     free (ptr);
 
 struct da_strings_t {
@@ -93,12 +106,25 @@ struct da_strings_t {
 
 #ifdef NOBBER_UTILS_IMPLEMENTAITON
 
-/* ----------------- */
+/* ---------------- */
 
 void * malloc0 (size_t size) {
     void * out_val = malloc (size);
     memset (out_val, 0, size);
     return out_val;
+}
+
+char * nobber_get_cwd () {
+    char * buf = malloc0(PATH_MAX);
+#if defined(_WIN32) || defined(__MSYS__) || defined(__MINGW__)
+    if (!_getcwd(buf, PATH_MAX)) {
+#else
+    if (!getcwd(buf, PATH_MAX)) {
+#endif
+        nob_log (NOB_ERROR, "Could not read current working directory: %s", strerror (errno));
+    }
+    buf = NOB_REALLOC (buf, strlen (buf));
+    return buf;
 }
 
 
@@ -135,7 +161,7 @@ DaStrings * compile_files (IN char * source_files[], size_t source_files_len,
     for (size_t i = 0; i < source_files_len; i++) {
         cmd->count = 0;
         if (source_files[i] == NULL) break;
-        nob_cmd_append (cmd, "cc");
+        nob_cc (cmd);
         nob_cmd_append (cmd, source_files[i]);
         nob_da_append_many (cmd, build_flags, build_flags_len);
         nob_cmd_append (cmd, "-c");
@@ -200,16 +226,8 @@ char * construct_string (IN char * str, ...) {
     return retval;
 }
 
-NobberError run_excutable (INOUT Nob_Cmd * cmd, IN char * executable) {
-    // We assume we are only running from the current directory.
-    char * cwd;
-    NobberError ret_val = NOBBER_RETURN_NORMAL;
-    strcat (cwd, "/");
-    strcat (cwd, executable);
-    return ret_val;
-}
 
-char * get_path_of_current_executalbe () {
+char * get_path_of_current_executable () {
     char buf[PATH_MAX];
 #if  defined(__DragonFly__) || defined(__NetBSD__) || defined(__linux__)
     #if defined(__linux__)
@@ -220,7 +238,7 @@ char * get_path_of_current_executalbe () {
       #define PROC_EXE_PATH "/proc/curproc/file"
     #endif
     if (readlink (PROC_EXE_PATH, buf, PATH_MAX) < 0) {
-        fprintf (stderr, "[ERROR] Could not readlink /proc/self/exe: %s", strerror (errno));
+        nob_log (NOB_ERROR, "Could not readlink /proc/self/exe: %s", strerror (errno));
         return NULL;
     }
 #elif defined(__FreeBSD__)
@@ -232,55 +250,90 @@ char * get_path_of_current_executalbe () {
     sysctl(mib, 4, buf, PATH_MAX, NULL, 0);
 #elif defined(__darwin__)
     if (_NSGetExecutablePath(buf, PATH_MAX) < 0) {
-        fprintf (stderr, "[ERROR] Could not get executable path.");
+        nob_log (NOB_ERROR, "Could not get executable path.");
     }
-#elif defined(WIN32)
+#elif defined(WINVER) || defined(__WINDOWS__) || defined(_WIN32) || defined(__MSYS__) || defined(__MINGW__) || defined(_MSC_VER)
     if (!GetModuleFileNameA (NULL, buf, MAX_PATH)) {
-        fprintf (stderr, "[ERROR] Could not readlink /proc/self/exe: %s", strerror (errno));
+        nob_log (NOB_ERROR, "Could not get executable path: %s", strerror (errno));
         return NULL;
     }
 #else
-    static_assert (false, "get_path_of_current_executalbe () is not implemented for this platform.");
+    static_assert (false, "get_path_of_current_executable () is not implemented for this platform.");
 #endif
+    errno = 0;
     char * ret = malloc (strlen (buf));
+    if (ret == NULL) {
+        nob_log (NOB_ERROR, "Could not allocate memory: %s", strerror (errno));
+        return NULL;
+    }
     strcpy(ret, buf);
     return ret;
 }
 
-char ** split_string (IN char * str, char deliminator, OUT size_t * out_size) {
+char ** split_string (IN char * str, IN char * deliminator, OUT size_t * out_len) {
+    if (str == NULL) return NULL;
     char * str_cpy = strndup (str, strlen (str));
     char * ptr = str_cpy;
-    char delim[2] = {deliminator, 0};
     size_t no_of_tokens = 0;
-
+    size_t delim_len = strlen (deliminator);
     // Count the nuber of tokens
     while (*ptr) {
-        if (*ptr == deliminator) {
+        if (strncmp (ptr, deliminator, delim_len) == 0) {
             no_of_tokens++;
         }
         ptr++;
     }
-    if (*(--ptr) != deliminator) {
+    // if the delimitor is at the end.
+    if (strncmp (ptr - delim_len, deliminator, delim_len) == 0 ) {
+        no_of_tokens--;
+    }
+    // if the string does not star with the a delimiter..
+    if (strncmp (str_cpy, deliminator, delim_len) != 0 ) {
         no_of_tokens++;
     }
     no_of_tokens++; // add empty space.
-    
+    errno = 0;
     char ** result = malloc0 (sizeof (char *) * no_of_tokens);
+    if (result == NULL) {
+        nob_log (NOB_ERROR, "Could not allocate memory: %s", strerror (errno));
+        return NULL;
+    }
     if (result) {
         size_t idx = 0;
         char * tok_ptr = str_cpy;
   
-        char * token = strtok (tok_ptr, delim);
+        char * token = strtok (tok_ptr, deliminator);
         while (token) {
             result[idx] = strndup (token, strlen (token));
-            token = strtok (NULL, delim);
+            token = strtok (NULL, deliminator);
             idx++;
         }
-        result[idx] = 0;
     }
-    *out_size = no_of_tokens - 1;
+    // The last slot is just a null terminaor, we return the actual number
+    // of tokens.
+    *out_len = no_of_tokens - 1;
     free (str_cpy);
     return result;
+}
+
+char * nobber_strndup (const char * s, size_t len) {
+    errno = 0;
+    size_t s_len = strlen (s);
+    if (s_len >= len) {
+        s_len = len;
+    }
+    char * buf = malloc0 (len);
+    if (buf == NULL) {
+        if (!errno) {
+            errno = ENOMEM;
+        }
+        return NULL;
+    }
+    for (size_t i = 0; i <= s_len; i++) {
+        buf[i] = s[i];
+    }
+
+    return buf;
 }
 
 

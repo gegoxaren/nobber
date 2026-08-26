@@ -11,6 +11,10 @@
 #include "../utils.h"
 #undef NOBBER_UTILS_IMPLEMENTAITON
 
+#define NOBBER_HASH_SET_IMPREMENTATION
+#include "../hashset.h"
+#undef NOBBER_HASH_SET_IMPREMENTATION
+
 
 int main ([[maybe_unused]] int argc,[[maybe_unused]] char * argv[]) {
     char * exec = get_path_of_current_executable ();

@@ -39,6 +39,9 @@
 
 #include "nob.h"
 
+#include "hashset.h"
+//#include "ht.h"
+
 #define IN /*Does nothing, just a mark.*/
 #define OUT /*Does nothing, just a mark.*/
 #define INOUT /*Does nothing, just a mark.*/
@@ -52,7 +55,21 @@
 #endif 
 
 
-typedef struct da_strings_t DaStrings;
+
+
+typedef struct da_strings_t {
+    char ** items;
+    size_t count;
+    size_t capacity;
+} DaStrings;
+
+typedef struct nobber_build_context_t {
+    char ** source_files;
+    size_t source_files_len;
+    char ** build_flags;
+    size_t build_flags_len;
+    char * build_dir;
+} NobberBuildContext;
 
 typedef enum NobberError {
     NOBBER_RETURN_NORMAL,
@@ -68,28 +85,28 @@ typedef enum NobberError {
 void * malloc0 (size_t size);
 char * strip_extention (IN char * file_name);
 char * c_to_o_ext (IN char * str);
-DaStrings * compile_files (IN char * source_files[], size_t source_files_len, IN char * build_flags[], size_t build_flags_len, INOUT Nob_Cmd * cmd, INOUT Nob_Procs * procs);
+DaStrings * compile_files (IN NobberBuildContext * ctx, INOUT Nob_Cmd * cmd, INOUT Nob_Procs * procs);
 void link_files (IN DaStrings * object_files, IN char * exec_name, IN char * link_flags[], size_t link_flags_len, INOUT Nob_Cmd * cmd);
-void clean_files (IN char * source_files[], size_t len, char * exec_name, INOUT Nob_Cmd * cmd);
-char * construct_string (IN char * str, ...);
+void clean_files (IN NobberBuildContext * ctx, char * exec_name, INOUT Nob_Cmd * cmd);
+char * construct_string (IN size_t count, ...);
+void append_ld_path (char * s);
 NobberError run_excutable (INOUT Nob_Cmd * cmd, IN char * executable);
 char * get_path_of_current_executable ();
 char ** split_string (IN char * str, IN char * delimeter, OUT size_t * out_len);
 char * nobber_strndup (IN const char * str, size_t len);
+char * nobber_strrstr (IN char * haystack, IN char* needle);
+char * substr (IN char * str, ssize_t pos, ssize_t len);
+char * get_parent_dir (IN char * path, OUT size_t * out_len);
 
 #if defined(_WIN32) || defined(__MINGW__) || defined(__MSYS2__)
 #define strndup nobber_strndup
 #endif 
 
 #define free0(ptr) \
-    memset ((void *)ptr, 0, sizeof (ptr)); \
-    free (ptr);
-
-struct da_strings_t {
-    char ** items;
-    size_t count;
-    size_t capacity;
-};
+    if (ptr) {\
+      memset ((void *)ptr, 0, sizeof (ptr)); \
+      free (ptr);\
+    }
 
 
 /** 
@@ -105,6 +122,8 @@ struct da_strings_t {
 }
 
 #ifdef NOBBER_UTILS_IMPLEMENTAITON
+#undef NOBBER_UTILS_IMPLEMENTAITON
+
 
 /* ---------------- */
 
@@ -154,28 +173,71 @@ char * c_to_o_ext (IN char * str) {
     return out_str;
 }
 
-DaStrings * compile_files (IN char * source_files[], size_t source_files_len,
-                           IN char * build_flags[], size_t build_flags_len, 
-                           INOUT Nob_Cmd * cmd, INOUT Nob_Procs * procs) {
+bool foreach_directory_create (void * directory, void * user_data) {
+    (void) user_data;
+    mkdir_if_not_exists (directory);
+}
+
+DaStrings * compile_files (IN NobberBuildContext * ctx, INOUT Nob_Cmd * cmd, INOUT Nob_Procs * procs) {
+
+    char ** source_files = ctx->source_files;
+    size_t source_files_len = ctx->source_files_len;
+    char ** build_flags = ctx->build_flags;
+    size_t build_flags_len = ctx->build_flags_len;
+    char * build_dir = ctx->build_dir;
+
+    char * tmp_obj_file;
+    char * tmp_str;
+    NobberHashSet * directories = nobber_hash_set_new ((NobberHashFunc) str_hash, (NobberEqualFunc) strcmp, 0);
+
+    // Create list of object files to be built.
     DaStrings * object_files = malloc0 (sizeof (DaStrings));
     for (size_t i = 0; i < source_files_len; i++) {
-        cmd->count = 0;
         if (source_files[i] == NULL) break;
-        nob_cc (cmd);
-        nob_cmd_append (cmd, source_files[i]);
-        nob_da_append_many (cmd, build_flags, build_flags_len);
-        nob_cmd_append (cmd, "-c");
-        char * tmp_str = c_to_o_ext (source_files[i]);
-        nob_cmd_append (cmd, "-o", tmp_str);
+        char * file_name = source_files[i];
+        if (!nob_file_exists (file_name)) {
+            nob_log (NOB_ERROR, "File \"%s\" does not exist! Aborting.");
+            goto err_out;
+
+        }
+        tmp_obj_file = c_to_o_ext (file_name);
+        tmp_str = malloc0 (strlen (file_name));
+        sprintf (tmp_str, "%s" PATH_SEPARATOR "%s",build_dir, tmp_obj_file);
 
         char * s = malloc0 (strlen (tmp_str) + 1);
         strcpy (s, tmp_str);
         nob_da_append (object_files, s);
 
-        nob_cmd_run (cmd, .async = procs);
-        free0 (tmp_str);
+        // add directories to the hash_set.
+        char * last_delim = strrchr (tmp_str, PATH_SEPARATOR_CHAR);
+        intptr_t last_index = last_delim - tmp_str;
+
+        char dir[PATH_MAX] = {0};
+        (void) strncpy (dir, tmp_str, last_index);
+
+        nobber_hash_set_add (directories, dir);
+
     }
+    // create appropreate directories
+    nobber_hash_set_foreach (directories, foreach_directory_create, NULL);
+
+    cmd->count = 0;
+
+    for (size_t i = 0; i < source_files_len; i++) {
+        nob_cmd_append (cmd, "gcc");
+        nob_da_append_many (cmd, build_flags, build_flags_len);
+        nob_cmd_append (cmd, "-c", "-o", (char*) object_files->items[i], source_files[i]);
+        nob_cmd_run (cmd, .async = procs);
+    }
+
+    nob_procs_wait (*procs);
+
     return object_files;
+
+err_out:
+    free0 (tmp_str);
+    free0 (tmp_obj_file);
+    return NULL;
 }
 
 void link_files (IN DaStrings * object_files, IN char * exec_name,
@@ -188,36 +250,55 @@ void link_files (IN DaStrings * object_files, IN char * exec_name,
     nob_cmd_run (cmd);
 }
 
-void clean_files (IN char * source_files[],  size_t len, char * exec_name, INOUT Nob_Cmd * cmd) {
+void clean_files (IN NobberBuildContext * ctx, char * exec_name, INOUT Nob_Cmd * cmd) {
     cmd->count = 0;
+
+    char ** source_files = ctx->source_files;
+    char * build_dir = ctx->build_dir;
+    size_t len = ctx->source_files_len;
+
     DaStrings tmp_strings = {0};
     for (size_t i = 0; i < len; i++) {
         if (source_files[i] == NULL) break;
-        char * tmp_file = strip_extention ((char *)source_files[i]);
-        char * tmp_obj_file = c_to_o_ext (tmp_file);
-        nob_da_append (&tmp_strings, tmp_obj_file);
-        tmp_file = c_to_o_ext (tmp_file);
-        free0 (tmp_file);
+        char * tmp_obj_file = c_to_o_ext (source_files[i]);
+        char tmp_with_path[PATH_MAX] = {0};
+        sprintf (tmp_with_path, "%s" PATH_SEPARATOR "%s", build_dir, tmp_obj_file);
+        char * tmp_with_path_2 = malloc0 (strlen (tmp_with_path));
+        strcpy (tmp_with_path_2, tmp_with_path);
+        nob_da_append (&tmp_strings, tmp_with_path_2);
     }
-    nob_cmd_append (cmd, "rm");
-    nob_da_append_many (cmd, tmp_strings.items, tmp_strings.count);
-    for (size_t i = 0; i < tmp_strings.count; i++) {
-        char * s = tmp_strings.items[i];
-        if (s == NULL) break;
+    nob_da_foreach(char *, it, &tmp_strings) {
+        nob_cmd_append (cmd, "rm", *it);
+        nob_cmd_run (cmd);
+        cmd->count = 0;
     }
-    nob_cmd_append (cmd, exec_name);
+    nob_cmd_append (cmd, "rm", exec_name);
     nob_cmd_run (cmd);
+    cmd->count = 0;
     da_free_items (char *, &tmp_strings);
 }
 
-char * construct_string (IN char * str, ...) {
+
+void append_ld_path (char * s) {
+  static Nob_String_Builder sb = {0};
+  char * current_env = getenv ("LD_LIBRARY_PATH");
+  if (current_env == NULL) {
+    nob_sb_appendf(&sb, "LD_LIBRARY_PATH=%s",s);
+  } else {
+    nob_sb_appendf(&sb, "LD_LIBRARY_PATH=%s:%s", current_env ,s);
+  }
+  
+  putenv (sb.items);
+}
+
+char * construct_string (size_t count, ...) {
     char * retval = NULL;
     va_list list = {0};
     Nob_String_Builder sb = {0};
-    nob_sb_append_cstr (&sb, str);
-    va_start (list, str);
-    while (*str++) {
-        nob_sb_append_cstr (&sb, str);
+    va_start (list, count);
+    for (size_t i = 0; i <= count; i++) {
+        const char * s = va_arg (list, char *);
+        nob_sb_append_cstr(&sb, s);
     }
     va_end (list);
     Nob_String_View sv = nob_sv_from_parts (sb.items, sb.count);
@@ -301,7 +382,7 @@ char ** split_string (IN char * str, IN char * deliminator, OUT size_t * out_len
     if (result) {
         size_t idx = 0;
         char * tok_ptr = str_cpy;
-  
+
         char * token = strtok (tok_ptr, deliminator);
         while (token) {
             result[idx] = strndup (token, strlen (token));
@@ -334,6 +415,61 @@ char * nobber_strndup (const char * s, size_t len) {
     }
 
     return buf;
+}
+
+char * nobber_strrstr (IN char * haystack, IN char* needle) {
+    size_t str_len = strlen (haystack);
+    size_t n_len = strlen (needle);
+    char * tmp_hs = haystack + str_len - n_len;
+    bool found = false;
+
+    while (str_len--) {
+        if (strncmp (tmp_hs, needle, n_len)) {
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) return NULL;
+    return tmp_hs;
+}
+
+char * substr (IN char * str, ssize_t pos, ssize_t len) {
+    if (pos < 0) {
+        NOB_TODO("substr(): Negative pos not yet implemented!");
+    }
+
+    if (len < 0) {
+        NOB_TODO("substr(): Negative len not yet implemented!");
+    }
+
+    char * tmp_str = str;
+
+    char * out_val = malloc0 (len + 1);
+    tmp_str += pos;
+
+    while (len--) *out_val++ = *tmp_str++;
+    *out_val = '\0';
+
+    return out_val;
+}
+
+
+char * get_parent_dir (IN char * path, OUT size_t * out_len) {
+    size_t t_out_len;
+    char * ret_val;
+    char * dir_mark = nobber_strrstr (path, PATH_SEPARATOR);
+    if (!dir_mark) {
+        if (out_len) out_len = 0;
+        return NULL;
+    }
+
+    size_t diff = strlen (path) - strlen (dir_mark);
+    ret_val = malloc0 (diff + 1);
+
+    while (dir_mark++) *ret_val = *dir_mark;
+
+    return ret_val;
 }
 
 

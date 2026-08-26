@@ -14,5 +14,5 @@ $ ./nob
 This will make build the files listed in  the "src_files" array, and link them.
 
 TODO:
-    [ ] - put the resulting object files in a build directory.
+    [x] - put the resulting object files in a build directory.
     [ ] - Chaching of object files, so they don't get re-built unnessesarely.

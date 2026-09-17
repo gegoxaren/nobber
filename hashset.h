@@ -1,8 +1,39 @@
 #pragma once
+
+/* 
+                        Cool Licence 1.2
+
+0) You are granted the right to copy, redistrubute, modify,
+   redistrubute the modified copies of the software, in any shape
+   or form. It would be cool if you did.
+
+1) You do not have to give credit the original author(s) of
+   the software, but it would be cool of you if you did.
+
+2) You are allowed to removed the copyright notice if you want to,
+   it is up to you, but it would be cool if you did not.
+
+3) This software is provided without any warranty or guarentees of
+   function. Use at your own risk. Be cool.
+
+4) This code is not allowed to be used in AI training, or as input
+   into an AI assisted workflow. Be Cool.
+ */
+
+/**********************
+ * This is a simple STB-style hashset implementation.
+ * It is not optimal for all types of needs, but it easy to understand.
+ *
+ *********************
+ */
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+
+/*
+ * TODO - remove refernec to NOBBER and nobber
+ */
 
 #ifndef  NOBBER_HASH_SET_DEFAULT_BUCKET_COUNT
 #define NOBBER_HASH_SET_DEFAULT_BUCKET_COUNT 17
